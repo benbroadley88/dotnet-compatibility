@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     /// <summary>
     /// Publicly-accessible types cannot be changed from stable to preliminary.
@@ -21,7 +21,7 @@
 
         internal static Message CreateMessage(string typeName)
         {
-            return new Message(Instance, typeName);
+            return new Message(Instance, (nameof(typeName), typeName));
         }
     }
 }

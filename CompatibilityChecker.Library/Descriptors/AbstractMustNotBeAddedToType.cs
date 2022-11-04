@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     /// <summary>
     /// The <c>sealed</c> modifier must not be added to a publicly-accessible type, unless that type does not have any
@@ -22,7 +22,7 @@
 
         internal static Message CreateMessage(string typeName)
         {
-            return new Message(Instance, typeName);
+            return new Message(Instance, (nameof(typeName), typeName));
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     using System.Reflection.Metadata;
     using System.Runtime.CompilerServices;
@@ -15,7 +15,7 @@
         private static new readonly Severity DefaultSeverity = Severity.Error;
         private static new readonly string Description = null;
 
-        private static readonly PropertySignatureMustNotBeChanged Instance = new ();
+        private static readonly PropertySignatureMustNotBeChanged Instance = new();
 
         private PropertySignatureMustNotBeChanged()
             : base(Id, Title, MessageFormat, Category, DefaultSeverity, Description)
@@ -24,7 +24,7 @@
 
         internal static Message CreateMessage(string propertyName)
         {
-            return new Message(Instance, propertyName);
+            return new Message(Instance, (nameof(propertyName), propertyName));
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     using System.Reflection;
 
@@ -18,7 +18,7 @@
         private static new readonly Severity DefaultSeverity = Severity.Error;
         private static new readonly string Description = null;
 
-        private static readonly AssemblyNameMustNotBeChanged Instance = new ();
+        private static readonly AssemblyNameMustNotBeChanged Instance = new();
 
         private AssemblyNameMustNotBeChanged()
             : base(Id, Title, MessageFormat, Category, DefaultSeverity, Description)
@@ -27,7 +27,7 @@
 
         internal static Message CreateMessage(string assemblyName)
         {
-            return new Message(Instance, assemblyName);
+            return new Message(Instance, (nameof(assemblyName), assemblyName));
         }
     }
 }

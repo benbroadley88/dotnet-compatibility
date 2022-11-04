@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     /// <summary>
     /// Attributes of publicly-accessible types must not be changed.
@@ -19,9 +19,12 @@
         {
         }
 
-        internal static Message CreateMessage(string typeName)
+        internal static Message CreateMessage(string typeName, string originalAttributes, string newAttributes)
         {
-            return new Message(Instance, typeName);
+            return new Message(Instance,
+                (nameof(typeName), typeName),
+                (nameof(originalAttributes), originalAttributes),
+                (nameof(newAttributes), newAttributes));
         }
     }
 }

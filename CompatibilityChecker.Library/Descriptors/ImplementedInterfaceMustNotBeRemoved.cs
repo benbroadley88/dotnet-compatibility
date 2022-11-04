@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     using System.Reflection.Metadata;
     using System.Runtime.CompilerServices;
@@ -15,7 +15,7 @@
         private static new readonly Severity DefaultSeverity = Severity.Error;
         private static new readonly string Description = null;
 
-        private static readonly ImplementedInterfaceMustNotBeRemoved Instance = new ();
+        private static readonly ImplementedInterfaceMustNotBeRemoved Instance = new();
 
         private ImplementedInterfaceMustNotBeRemoved()
             : base(Id, Title, MessageFormat, Category, DefaultSeverity, Description)
@@ -25,7 +25,9 @@
         internal static Message CreateMessage(string typeName, string interfaceName)
         {
 
-            return new Message(Instance, typeName, interfaceName);
+            return new Message(Instance,
+                (nameof(typeName), typeName),
+                (nameof(interfaceName), interfaceName));
         }
     }
 }

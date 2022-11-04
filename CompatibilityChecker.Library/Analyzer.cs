@@ -11,94 +11,90 @@ namespace CompatibilityChecker.Library
 
     public class Analyzer
     {
-        private readonly PEReader referenceAssembly;
-        private readonly PEReader newAssembly;
-        private readonly IMessageReporter reporter;
+        private readonly PEReader mReferenceAssembly;
+        private readonly PEReader mNewAssembly;
+        private readonly IMessageReporter mReporter;
 
-        private MetadataReader referenceMetadata;
-        private MetadataReader newMetadata;
+        private MetadataReader mReferenceMetadata;
+        private MetadataReader mNewMetadata;
 
-        private MetadataMapping _referenceToNewMapping;
-        private MetadataMapping newToReferenceMapping;
-
-        private bool _hasRun = false;
-
-        public bool HasRun => _hasRun;
-
-        public IEnumerable<Message> Results => reporter.ReportedMessages;
-
-        public IReportStatistics ResultStatistics => reporter.Statistics;
+        private MetadataMapping mReferenceToNewMapping;
 
         public Analyzer(PEReader referenceAssembly, PEReader newAssembly, IMessageReporter reporter, IMessageLogger logger)
         {
-            this.referenceAssembly = referenceAssembly;
-            this.newAssembly = newAssembly;
-            this.reporter = reporter ?? new BasicListingReporter(logger ?? new ConsoleMessageLogger());
+            mReferenceAssembly = referenceAssembly;
+            mNewAssembly = newAssembly;
+            mReporter = reporter ?? new BasicListingReporter(logger ?? new ConsoleMessageLogger());
         }
+
+        public bool HasRun { get; private set; }
+
+        public IEnumerable<Message> Results { get => mReporter.ReportedMessages; }
+
+        public IReportStatistics ResultStatistics { get => mReporter.Statistics; }
 
         public void Run()
         {
-            this.referenceMetadata = referenceAssembly.GetMetadataReader();
-            this.newMetadata = newAssembly.GetMetadataReader();
-            var referenceMetadata = this.referenceMetadata;
-            var newMetadata = this.newMetadata;
+            mReferenceMetadata = mReferenceAssembly.GetMetadataReader();
+            mNewMetadata = mNewAssembly.GetMetadataReader();
 
-            _referenceToNewMapping = new MetadataMapping(referenceMetadata, newMetadata);
-            newToReferenceMapping = new MetadataMapping(newMetadata, referenceMetadata);
+            mReferenceToNewMapping = new MetadataMapping(mReferenceMetadata, mNewMetadata);
 
-            CheckAssemblyProperties(referenceMetadata, newMetadata);
+            this.CheckAssemblyProperties(mReferenceMetadata, mNewMetadata);
 
-            foreach (var typeDefinitionHandle in referenceMetadata.TypeDefinitions)
+            foreach (var typeDefinitionHandle in mReferenceMetadata.TypeDefinitions)
             {
-                TypeDefinition typeDefinition = referenceMetadata.GetTypeDefinition(typeDefinitionHandle);
+                TypeDefinition typeDefinition = mReferenceMetadata.GetTypeDefinition(typeDefinitionHandle);
 
-                if (!IsPubliclyVisible(referenceMetadata, typeDefinition))
+                if (!IsPubliclyVisible(mReferenceMetadata, typeDefinition))
                 {
                     continue;
                 }
 
-                if (IsMarkedPreliminary(referenceMetadata, typeDefinition))
+                if (IsMarkedPreliminary(mReferenceMetadata, typeDefinition))
                 {
                     continue;
                 }
 
-                Mapping<TypeDefinitionHandle> typeMapping = _referenceToNewMapping.MapTypeDefinition(typeDefinitionHandle);
+                Mapping<TypeDefinitionHandle> typeMapping = mReferenceToNewMapping.MapTypeDefinition(typeDefinitionHandle);
 
                 // make sure the type still exists
                 if (typeMapping.Target.IsNil)
                 {
-                    reporter.Report(TypeMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition)));
+                    mReporter.Report(TypeMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition)));
                     continue;
                 }
 
-                TypeDefinition newTypeDefinition = newMetadata.GetTypeDefinition(typeMapping.Target);
+                TypeDefinition newTypeDefinition = mNewMetadata.GetTypeDefinition(typeMapping.Target);
                 if ((typeDefinition.Attributes & TypeAttributes.Sealed) == 0)
                 {
                     if ((newTypeDefinition.Attributes & TypeAttributes.Sealed) == TypeAttributes.Sealed
-                        && HasVisibleConstructors(newMetadata, newTypeDefinition))
+                        && HasVisibleConstructors(mNewMetadata, newTypeDefinition))
                     {
-                        reporter.Report(SealedMustNotBeAddedToType.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition)));
+                        mReporter.Report(SealedMustNotBeAddedToType.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition)));
                     }
                 }
 
                 if ((typeDefinition.Attributes & TypeAttributes.Abstract) == 0)
                 {
                     if ((newTypeDefinition.Attributes & TypeAttributes.Abstract) == TypeAttributes.Abstract
-                        && HasVisibleConstructors(newMetadata, newTypeDefinition))
+                        && HasVisibleConstructors(mNewMetadata, newTypeDefinition))
                     {
-                        reporter.Report(AbstractMustNotBeAddedToType.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition)));
+                        mReporter.Report(AbstractMustNotBeAddedToType.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition)));
                     }
                 }
 
                 TypeAttributes uncheckedAttributesMask = ~(TypeAttributes.Sealed | TypeAttributes.Abstract);
                 if ((typeDefinition.Attributes & uncheckedAttributesMask) != (newTypeDefinition.Attributes & uncheckedAttributesMask))
                 {
-                    reporter.Report(PublicAttributesMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition)));
+                    mReporter.Report(PublicAttributesMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition),
+                        typeDefinition.Attributes.ToString(),
+                        newTypeDefinition.Attributes.ToString()));
                 }
 
-                if (IsMarkedPreliminary(newMetadata, newTypeDefinition))
+                if (IsMarkedPreliminary(mNewMetadata, newTypeDefinition))
                 {
-                    reporter.Report(TypeMustNotBeMadePreliminaryFromStable.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition)));
+                    mReporter.Report(TypeMustNotBeMadePreliminaryFromStable.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition)));
                 }
 
                 // check base type
@@ -108,30 +104,30 @@ namespace CompatibilityChecker.Library
                     Handle newBaseTypeHandle = newTypeDefinition.BaseType;
                     if (newBaseTypeHandle.IsNil)
                     {
-                        reporter.Report(BaseTypeMustNotChange.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition))); // throw new NotImplementedException("Base type changed.");
+                        mReporter.Report(BaseTypeMustNotChange.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition))); // throw new NotImplementedException("Base type changed.");
                     }
 
                     if (baseTypeHandle.Kind != newBaseTypeHandle.Kind)
                     {
-                        reporter.Report(BaseTypeMustNotChange.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition))); // throw new NotImplementedException("Base type changed.");
+                        mReporter.Report(BaseTypeMustNotChange.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition))); // throw new NotImplementedException("Base type changed.");
                     }
 
                     switch (baseTypeHandle.Kind)
                     {
                         case HandleKind.TypeDefinition:
-                            CheckBaseType(referenceMetadata, newMetadata, (TypeDefinitionHandle)baseTypeHandle, (TypeDefinitionHandle)newBaseTypeHandle);
+                            CheckBaseType(mReferenceMetadata, mNewMetadata, (TypeDefinitionHandle)baseTypeHandle, (TypeDefinitionHandle)newBaseTypeHandle);
                             break;
 
                         case HandleKind.TypeReference:
-                            TypeReference referenceBaseTypeReference = referenceMetadata.GetTypeReference((TypeReferenceHandle)baseTypeHandle);
-                            TypeReference newBaseTypeReference = newMetadata.GetTypeReference((TypeReferenceHandle)newBaseTypeHandle);
-                            CheckBaseType(referenceMetadata, newMetadata, referenceBaseTypeReference, newBaseTypeReference);
+                            TypeReference referenceBaseTypeReference = mReferenceMetadata.GetTypeReference((TypeReferenceHandle)baseTypeHandle);
+                            TypeReference newBaseTypeReference = mNewMetadata.GetTypeReference((TypeReferenceHandle)newBaseTypeHandle);
+                            CheckBaseType(mReferenceMetadata, mNewMetadata, referenceBaseTypeReference, newBaseTypeReference);
                             break;
 
                         case HandleKind.TypeSpecification:
-                            TypeSpecification referenceBaseTypeSpecification = referenceMetadata.GetTypeSpecification((TypeSpecificationHandle)baseTypeHandle);
-                            TypeSpecification newBaseTypeSpecification = newMetadata.GetTypeSpecification((TypeSpecificationHandle)newBaseTypeHandle);
-                            CheckBaseType(referenceMetadata, newMetadata, referenceBaseTypeSpecification, newBaseTypeSpecification);
+                            TypeSpecification referenceBaseTypeSpecification = mReferenceMetadata.GetTypeSpecification((TypeSpecificationHandle)baseTypeHandle);
+                            TypeSpecification newBaseTypeSpecification = mNewMetadata.GetTypeSpecification((TypeSpecificationHandle)newBaseTypeHandle);
+                            CheckBaseType(mReferenceMetadata, mNewMetadata, referenceBaseTypeSpecification, newBaseTypeSpecification);
                             break;
 
                         default:
@@ -140,21 +136,21 @@ namespace CompatibilityChecker.Library
                 }
 
                 // check interfaces
-                foreach (var interfaceImplementation in typeDefinition.GetInterfaceImplementations().Select(referenceMetadata.GetInterfaceImplementation))
+                foreach (var interfaceImplementation in typeDefinition.GetInterfaceImplementations().Select(mReferenceMetadata.GetInterfaceImplementation))
                 {
                     if (interfaceImplementation.Interface.Kind == HandleKind.TypeDefinition)
                     {
-                        TypeDefinition interfaceImplementationTypeDefinition = referenceMetadata.GetTypeDefinition((TypeDefinitionHandle)interfaceImplementation.Interface);
-                        if (!IsPubliclyVisible(referenceMetadata, interfaceImplementationTypeDefinition))
+                        TypeDefinition interfaceImplementationTypeDefinition = mReferenceMetadata.GetTypeDefinition((TypeDefinitionHandle)interfaceImplementation.Interface);
+                        if (!IsPubliclyVisible(mReferenceMetadata, interfaceImplementationTypeDefinition))
                         {
                             continue;
                         }
                     }
 
                     bool foundMatchingInterface = false;
-                    foreach (var newInterfaceImplementation in newTypeDefinition.GetInterfaceImplementations().Select(newMetadata.GetInterfaceImplementation))
+                    foreach (var newInterfaceImplementation in newTypeDefinition.GetInterfaceImplementations().Select(mNewMetadata.GetInterfaceImplementation))
                     {
-                        foundMatchingInterface = IsSameType(referenceMetadata, newMetadata, interfaceImplementation.Interface, newInterfaceImplementation.Interface);
+                        foundMatchingInterface = IsSameType(mReferenceMetadata, mNewMetadata, interfaceImplementation.Interface, newInterfaceImplementation.Interface);
                         if (foundMatchingInterface)
                         {
                             break;
@@ -163,79 +159,79 @@ namespace CompatibilityChecker.Library
 
                     if (!foundMatchingInterface)
                     {
-                        reporter.Report(ImplementedInterfaceMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition), GetMetadataName(referenceMetadata, interfaceImplementation))); // throw new NotImplementedException("Implemented interface was removed from a type.");
+                        mReporter.Report(ImplementedInterfaceMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition), GetMetadataName(mReferenceMetadata, interfaceImplementation))); // throw new NotImplementedException("Implemented interface was removed from a type.");
                     }
                 }
 
                 // check fields
                 foreach (var fieldDefinitionHandle in typeDefinition.GetFields())
                 {
-                    var fieldDefinition = referenceMetadata.GetFieldDefinition(fieldDefinitionHandle);
-                    if (!IsPubliclyVisible(referenceMetadata, fieldDefinition))
+                    var fieldDefinition = mReferenceMetadata.GetFieldDefinition(fieldDefinitionHandle);
+                    if (!IsPubliclyVisible(mReferenceMetadata, fieldDefinition))
                     {
                         continue;
                     }
 
-                    Mapping<FieldDefinitionHandle> fieldMapping = _referenceToNewMapping.MapFieldDefinition(fieldDefinitionHandle);
+                    Mapping<FieldDefinitionHandle> fieldMapping = mReferenceToNewMapping.MapFieldDefinition(fieldDefinitionHandle);
                     if (fieldMapping.Target.IsNil)
                     {
                         if (fieldMapping.CandidateTargets.IsDefaultOrEmpty)
                         {
-                            reporter.Report(FieldMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, fieldDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible field '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, fieldDefinition)));
+                            mReporter.Report(FieldMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, fieldDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible field '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, fieldDefinition)));
                         }
 
                         //throw new NotImplementedException();
                         continue; // TODO test
                     }
 
-                    FieldDefinition newFieldDefinition = newMetadata.GetFieldDefinition(fieldMapping.Target);
+                    FieldDefinition newFieldDefinition = mNewMetadata.GetFieldDefinition(fieldMapping.Target);
                     if (fieldDefinition.Attributes != newFieldDefinition.Attributes)
                     {
-                        reporter.Report(FieldAttributesMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, fieldDefinition))); // throw new NotImplementedException("Attributes of publicly-visible field changed.");
+                        mReporter.Report(FieldAttributesMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, fieldDefinition))); // throw new NotImplementedException("Attributes of publicly-visible field changed.");
                     }
 
-                    if (!IsSameFieldSignature(referenceMetadata, newMetadata, referenceMetadata.GetSignature(fieldDefinition), newMetadata.GetSignature(newFieldDefinition)))
+                    if (!IsSameFieldSignature(mReferenceMetadata, mNewMetadata, mReferenceMetadata.GetSignature(fieldDefinition), mNewMetadata.GetSignature(newFieldDefinition)))
                     {
-                        reporter.Report(OtherError.CreateMessage(string.Format("Signature of publicly-accessible field '{0}' changed.", GetMetadataName(referenceMetadata, fieldDefinition)))); // throw new NotImplementedException("Signature of publicly-accessible field changed.");
+                        mReporter.Report(OtherError.CreateMessage(string.Format("Signature of publicly-accessible field '{0}' changed.", GetMetadataName(mReferenceMetadata, fieldDefinition)))); // throw new NotImplementedException("Signature of publicly-accessible field changed.");
                     }
 
                     if (!fieldDefinition.GetDefaultValue().IsNil)
                     {
                         if (newFieldDefinition.GetDefaultValue().IsNil)
                         {
-                            reporter.Report(OtherError.CreateMessage(string.Format("Constant value of field '{0}' was removed.", GetMetadataName(referenceMetadata, fieldDefinition)))); // throw new NotImplementedException("Constant value of a field was removed.");
+                            mReporter.Report(OtherError.CreateMessage(string.Format("Constant value of field '{0}' was removed.", GetMetadataName(mReferenceMetadata, fieldDefinition)))); // throw new NotImplementedException("Constant value of a field was removed.");
                         }
 
-                        Constant constant = referenceMetadata.GetConstant(fieldDefinition.GetDefaultValue());
-                        Constant newConstant = newMetadata.GetConstant(newFieldDefinition.GetDefaultValue());
+                        Constant constant = mReferenceMetadata.GetConstant(fieldDefinition.GetDefaultValue());
+                        Constant newConstant = mNewMetadata.GetConstant(newFieldDefinition.GetDefaultValue());
                         if (constant.TypeCode != newConstant.TypeCode)
                         {
-                            reporter.Report(OtherError.CreateMessage(string.Format("Constant value's type of field '{0}' changed from '{1}' to '{2}'.", GetMetadataName(referenceMetadata, fieldDefinition), constant.TypeCode, newConstant.TypeCode))); // throw new NotImplementedException("Constant value of a field changed.");
+                            mReporter.Report(OtherError.CreateMessage(string.Format("Constant value's type of field '{0}' changed from '{1}' to '{2}'.", GetMetadataName(mReferenceMetadata, fieldDefinition), constant.TypeCode, newConstant.TypeCode))); // throw new NotImplementedException("Constant value of a field changed.");
                         }
 
-                        var referenceValue = referenceMetadata.GetBlobContent(constant.Value);
-                        var newValue = referenceMetadata.GetBlobContent(constant.Value);
+                        var referenceValue = mReferenceMetadata.GetBlobContent(constant.Value);
+                        var newValue = mReferenceMetadata.GetBlobContent(constant.Value);
                         if (!referenceValue.SequenceEqual(newValue))
                         {
-                            reporter.Report(OtherError.CreateMessage(string.Format("Constant value of field '{0}'.", GetMetadataName(referenceMetadata, fieldDefinition)))); // throw new NotImplementedException("Constant value of a field changed.");
+                            mReporter.Report(OtherError.CreateMessage(string.Format("Constant value of field '{0}'.", GetMetadataName(mReferenceMetadata, fieldDefinition)))); // throw new NotImplementedException("Constant value of a field changed.");
                         }
                     }
                 }
 
                 // check methods
-                foreach (var methodDefinition in typeDefinition.GetMethods().Select(referenceMetadata.GetMethodDefinition))
+                foreach (var methodDefinition in typeDefinition.GetMethods().Select(mReferenceMetadata.GetMethodDefinition))
                 {
-                    if (!IsPubliclyVisible(referenceMetadata, methodDefinition))
+                    if (!IsPubliclyVisible(mReferenceMetadata, methodDefinition))
                     {
                         continue;
                     }
 
-                    string referenceName = referenceMetadata.GetString(methodDefinition.Name);
+                    string referenceName = mReferenceMetadata.GetString(methodDefinition.Name);
 
-                    List<MethodDefinition> newMethodDefinitions = new ();
-                    foreach (var newMethodDefinition in newTypeDefinition.GetMethods().Select(newMetadata.GetMethodDefinition))
+                    List<MethodDefinition> newMethodDefinitions = new();
+                    foreach (var newMethodDefinition in newTypeDefinition.GetMethods().Select(mNewMetadata.GetMethodDefinition))
                     {
-                        string newName = newMetadata.GetString(newMethodDefinition.Name);
+                        string newName = mNewMetadata.GetString(newMethodDefinition.Name);
                         if (!string.Equals(referenceName, newName, StringComparison.Ordinal))
                         {
                             continue;
@@ -258,23 +254,26 @@ namespace CompatibilityChecker.Library
 
                     if (newMethodDefinitions.Count == 0)
                     {
-                        reporter.Report(MethodMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, methodDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible method '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, methodDefinition)));
+                        mReporter.Report(MethodMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, methodDefinition), "new assembly did not have a matching definition (name did not match and/or parameter count did not match).")); //throw new NotImplementedException(string.Format("Publicly-visible method '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, methodDefinition)));
                         continue;
                     }
 
                     bool foundMethodDefinition = false;
                     foreach (var newMethodDefinition in newMethodDefinitions)
                     {
-                        MethodSignature referenceSignatureReader = referenceMetadata.GetSignature(methodDefinition);
-                        MethodSignature newSignatureReader = newMetadata.GetSignature(newMethodDefinition);
-                        if (!IsSameMethodSignature(referenceMetadata, newMetadata, referenceSignatureReader, newSignatureReader))
+                        MethodSignature referenceSignatureReader = mReferenceMetadata.GetSignature(methodDefinition);
+                        MethodSignature newSignatureReader = mNewMetadata.GetSignature(newMethodDefinition);
+                        if (!IsSameMethodSignature(mReferenceMetadata, mNewMetadata, referenceSignatureReader, newSignatureReader))
                         {
                             continue;
                         }
 
                         if (methodDefinition.Attributes != newMethodDefinition.Attributes)
                         {
-                            reporter.Report(MethodAttributesMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, methodDefinition))); // throw new NotImplementedException("Attributes of publicly-visible method changed.");
+                            mReporter.Report(MethodAttributesMustNotBeChanged.CreateMessage(
+                                GetMetadataName(mReferenceMetadata, methodDefinition),
+                                methodDefinition.Attributes.ToString(),
+                                newMethodDefinition.Attributes.ToString())); // throw new NotImplementedException("Attributes of publicly-visible method changed.");
                         }
 
                         foundMethodDefinition = true;
@@ -283,7 +282,7 @@ namespace CompatibilityChecker.Library
 
                     if (!foundMethodDefinition)
                     {
-                        reporter.Report(MethodMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, methodDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible method '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, methodDefinition)));
+                        mReporter.Report(MethodMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, methodDefinition), "Could not find matching definition.")); //throw new NotImplementedException(string.Format("Publicly-visible method '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, methodDefinition)));
                     }
                 }
 
@@ -292,15 +291,15 @@ namespace CompatibilityChecker.Library
                 {
                     if (typeDefinition.GetMethods().Count < newTypeDefinition.GetMethods().Count)
                     {
-                        List<MethodDefinition> addedMethods = new ();
-                        foreach (var newMethodDefinition in newTypeDefinition.GetMethods().Select(newMetadata.GetMethodDefinition))
+                        List<MethodDefinition> addedMethods = new();
+                        foreach (var newMethodDefinition in newTypeDefinition.GetMethods().Select(mNewMetadata.GetMethodDefinition))
                         {
-                            string newName = newMetadata.GetString(newMethodDefinition.Name);
+                            string newName = mNewMetadata.GetString(newMethodDefinition.Name);
 
-                            List<MethodDefinition> methodDefinitions = new ();
-                            foreach (var methodDefinition in typeDefinition.GetMethods().Select(referenceMetadata.GetMethodDefinition))
+                            List<MethodDefinition> methodDefinitions = new();
+                            foreach (var methodDefinition in typeDefinition.GetMethods().Select(mReferenceMetadata.GetMethodDefinition))
                             {
-                                string referenceName = referenceMetadata.GetString(methodDefinition.Name);
+                                string referenceName = mReferenceMetadata.GetString(methodDefinition.Name);
                                 if (!string.Equals(newName, referenceName, StringComparison.Ordinal))
                                 {
                                     continue;
@@ -330,7 +329,7 @@ namespace CompatibilityChecker.Library
 
                         foreach (var addedMethod in addedMethods)
                         {
-                            reporter.Report(MethodMustNotBeAddedToInterface.CreateMessage(GetMetadataName(referenceMetadata, typeDefinition), GetMetadataName(newMetadata, addedMethod))); // throw new NotImplementedException("Method was added to an interface.");
+                            mReporter.Report(MethodMustNotBeAddedToInterface.CreateMessage(GetMetadataName(mReferenceMetadata, typeDefinition), GetMetadataName(mNewMetadata, addedMethod))); // throw new NotImplementedException("Method was added to an interface.");
                         }
                     }
                 }
@@ -338,116 +337,116 @@ namespace CompatibilityChecker.Library
                 // check events
                 foreach (var eventDefinitionHandle in typeDefinition.GetEvents())
                 {
-                    var eventDefinition = referenceMetadata.GetEventDefinition(eventDefinitionHandle);
-                    if (!IsPubliclyVisible(referenceMetadata, eventDefinition))
+                    var eventDefinition = mReferenceMetadata.GetEventDefinition(eventDefinitionHandle);
+                    if (!IsPubliclyVisible(mReferenceMetadata, eventDefinition))
                     {
                         continue;
                     }
 
-                    Mapping<EventDefinitionHandle> eventDefinitionMapping = _referenceToNewMapping.MapEventDefinition(eventDefinitionHandle);
+                    Mapping<EventDefinitionHandle> eventDefinitionMapping = mReferenceToNewMapping.MapEventDefinition(eventDefinitionHandle);
                     if (eventDefinitionMapping.Target.IsNil)
                     {
-                        reporter.Report(EventMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, eventDefinition, typeDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible event '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, eventDefinition, typeDefinition)));
+                        mReporter.Report(EventMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, eventDefinition, typeDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible event '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, eventDefinition, typeDefinition)));
                         continue; // TODO test
                     }
 
-                    EventDefinition newEventDefinition = newMetadata.GetEventDefinition(eventDefinitionMapping.Target);
+                    EventDefinition newEventDefinition = mNewMetadata.GetEventDefinition(eventDefinitionMapping.Target);
                     if (eventDefinition.Attributes != newEventDefinition.Attributes)
                     {
-                        reporter.Report(EventAttributesMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Attributes of publicly-visible event changed.");
+                        mReporter.Report(EventAttributesMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Attributes of publicly-visible event changed.");
                     }
 
-                    if (!IsSameType(referenceMetadata, newMetadata, eventDefinition.Type, newEventDefinition.Type))
+                    if (!IsSameType(mReferenceMetadata, mNewMetadata, eventDefinition.Type, newEventDefinition.Type))
                     {
-                        reporter.Report(EventSignatureMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Signature of publicly-visible event changed.");
+                        mReporter.Report(EventSignatureMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Signature of publicly-visible event changed.");
                     }
 
                     EventAccessors eventAccessors = eventDefinition.GetAccessors();
 
                     if (!eventAccessors.Adder.IsNil)
                     {
-                        MethodDefinition referenceAdderMethodDefinition = referenceMetadata.GetMethodDefinition(eventAccessors.Adder);
-                        if (IsPubliclyVisible(referenceMetadata, referenceAdderMethodDefinition))
+                        MethodDefinition referenceAdderMethodDefinition = mReferenceMetadata.GetMethodDefinition(eventAccessors.Adder);
+                        if (IsPubliclyVisible(mReferenceMetadata, referenceAdderMethodDefinition))
                         {
                             EventAccessors newEventAccessors = newEventDefinition.GetAccessors();
                             if (newEventAccessors.Adder.IsNil)
                             {
-                                reporter.Report(EventAdderMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Event adder was removed.");
+                                mReporter.Report(EventAdderMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Event adder was removed.");
                             }
 
-                            MethodDefinition newAdderMethodDefinition = newMetadata.GetMethodDefinition(newEventAccessors.Adder);
+                            MethodDefinition newAdderMethodDefinition = mNewMetadata.GetMethodDefinition(newEventAccessors.Adder);
 
-                            string referenceAdderName = referenceMetadata.GetString(referenceAdderMethodDefinition.Name);
-                            string newAdderName = newMetadata.GetString(newAdderMethodDefinition.Name);
+                            string referenceAdderName = mReferenceMetadata.GetString(referenceAdderMethodDefinition.Name);
+                            string newAdderName = mNewMetadata.GetString(newAdderMethodDefinition.Name);
                             if (!string.Equals(referenceAdderName, newAdderName, StringComparison.Ordinal))
                             {
-                                reporter.Report(OtherError.CreateMessage(string.Format("Name of event adder '{0}' changed.", referenceAdderName))); // throw new NotImplementedException("Signature of event adder changed.");
+                                mReporter.Report(OtherError.CreateMessage(string.Format("Name of event adder '{0}' changed.", referenceAdderName))); // throw new NotImplementedException("Signature of event adder changed.");
                             }
 
-                            MethodSignature referenceSignatureReader = referenceMetadata.GetSignature(referenceAdderMethodDefinition);
-                            MethodSignature newSignatureReader = newMetadata.GetSignature(newAdderMethodDefinition);
-                            if (!IsSameMethodSignature(referenceMetadata, newMetadata, referenceSignatureReader, newSignatureReader))
+                            MethodSignature referenceSignatureReader = mReferenceMetadata.GetSignature(referenceAdderMethodDefinition);
+                            MethodSignature newSignatureReader = mNewMetadata.GetSignature(newAdderMethodDefinition);
+                            if (!IsSameMethodSignature(mReferenceMetadata, mNewMetadata, referenceSignatureReader, newSignatureReader))
                             {
-                                reporter.Report(OtherError.CreateMessage(string.Format("Signature of event adder '{0}' changed.", referenceAdderName))); // throw new NotImplementedException("Signature of event adder changed.");
+                                mReporter.Report(OtherError.CreateMessage(string.Format("Signature of event adder '{0}' changed.", referenceAdderName))); // throw new NotImplementedException("Signature of event adder changed.");
                             }
                         }
                     }
 
                     if (!eventAccessors.Remover.IsNil)
                     {
-                        MethodDefinition referenceRemoverMethodDefinition = referenceMetadata.GetMethodDefinition(eventAccessors.Remover);
-                        if (IsPubliclyVisible(referenceMetadata, referenceRemoverMethodDefinition))
+                        MethodDefinition referenceRemoverMethodDefinition = mReferenceMetadata.GetMethodDefinition(eventAccessors.Remover);
+                        if (IsPubliclyVisible(mReferenceMetadata, referenceRemoverMethodDefinition))
                         {
                             EventAccessors newEventAccessors = newEventDefinition.GetAccessors();
                             if (newEventAccessors.Remover.IsNil)
                             {
-                                reporter.Report(EventRemoverMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Event remover was removed.");
+                                mReporter.Report(EventRemoverMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Event remover was removed.");
                             }
 
-                            MethodDefinition newRemoverMethodDefinition = newMetadata.GetMethodDefinition(newEventAccessors.Remover);
+                            MethodDefinition newRemoverMethodDefinition = mNewMetadata.GetMethodDefinition(newEventAccessors.Remover);
 
-                            string referenceRemoverName = referenceMetadata.GetString(referenceRemoverMethodDefinition.Name);
-                            string newRemoverName = newMetadata.GetString(newRemoverMethodDefinition.Name);
+                            string referenceRemoverName = mReferenceMetadata.GetString(referenceRemoverMethodDefinition.Name);
+                            string newRemoverName = mNewMetadata.GetString(newRemoverMethodDefinition.Name);
                             if (!string.Equals(referenceRemoverName, newRemoverName, StringComparison.Ordinal))
                             {
-                                reporter.Report(OtherError.CreateMessage(string.Format("Name of event remover '{0}' changed.", referenceRemoverName))); // throw new NotImplementedException("Signature of event remover changed.");
+                                mReporter.Report(OtherError.CreateMessage(string.Format("Name of event remover '{0}' changed.", referenceRemoverName))); // throw new NotImplementedException("Signature of event remover changed.");
                             }
 
-                            MethodSignature referenceSignatureReader = referenceMetadata.GetSignature(referenceRemoverMethodDefinition);
-                            MethodSignature newSignatureReader = newMetadata.GetSignature(newRemoverMethodDefinition);
-                            if (!IsSameMethodSignature(referenceMetadata, newMetadata, referenceSignatureReader, newSignatureReader))
+                            MethodSignature referenceSignatureReader = mReferenceMetadata.GetSignature(referenceRemoverMethodDefinition);
+                            MethodSignature newSignatureReader = mNewMetadata.GetSignature(newRemoverMethodDefinition);
+                            if (!IsSameMethodSignature(mReferenceMetadata, mNewMetadata, referenceSignatureReader, newSignatureReader))
                             {
-                                reporter.Report(OtherError.CreateMessage(string.Format("Signature of event remover '{0}' changed.", referenceRemoverName))); // throw new NotImplementedException("Signature of event remover changed.");
+                                mReporter.Report(OtherError.CreateMessage(string.Format("Signature of event remover '{0}' changed.", referenceRemoverName))); // throw new NotImplementedException("Signature of event remover changed.");
                             }
                         }
                     }
 
                     if (!eventAccessors.Raiser.IsNil)
                     {
-                        MethodDefinition referenceRaiserMethodDefinition = referenceMetadata.GetMethodDefinition(eventAccessors.Raiser);
-                        if (IsPubliclyVisible(referenceMetadata, referenceRaiserMethodDefinition))
+                        MethodDefinition referenceRaiserMethodDefinition = mReferenceMetadata.GetMethodDefinition(eventAccessors.Raiser);
+                        if (IsPubliclyVisible(mReferenceMetadata, referenceRaiserMethodDefinition))
                         {
                             EventAccessors newEventAccessors = newEventDefinition.GetAccessors();
                             if (newEventAccessors.Raiser.IsNil)
                             {
-                                reporter.Report(EventRaiserMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Event raiser was removed.");
+                                mReporter.Report(EventRaiserMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, eventDefinition, typeDefinition))); // throw new NotImplementedException("Event raiser was removed.");
                             }
                             else
                             {
-                                MethodDefinition newRaiserMethodDefinition = newMetadata.GetMethodDefinition(newEventAccessors.Raiser);
+                                MethodDefinition newRaiserMethodDefinition = mNewMetadata.GetMethodDefinition(newEventAccessors.Raiser);
 
-                                string referenceRaiserName = referenceMetadata.GetString(referenceRaiserMethodDefinition.Name);
-                                string newRaiserName = newMetadata.GetString(newRaiserMethodDefinition.Name);
+                                string referenceRaiserName = mReferenceMetadata.GetString(referenceRaiserMethodDefinition.Name);
+                                string newRaiserName = mNewMetadata.GetString(newRaiserMethodDefinition.Name);
                                 if (!string.Equals(referenceRaiserName, newRaiserName, StringComparison.Ordinal))
                                 {
-                                    reporter.Report(OtherError.CreateMessage(string.Format("Name of event raiser '{0}' changed.", referenceRaiserName))); // throw new NotImplementedException("Signature of event raiser changed.");
+                                    mReporter.Report(OtherError.CreateMessage(string.Format("Name of event raiser '{0}' changed.", referenceRaiserName))); // throw new NotImplementedException("Signature of event raiser changed.");
                                 }
 
-                                MethodSignature referenceSignatureReader = referenceMetadata.GetSignature(referenceRaiserMethodDefinition);
-                                MethodSignature newSignatureReader = newMetadata.GetSignature(newRaiserMethodDefinition);
-                                if (!IsSameMethodSignature(referenceMetadata, newMetadata, referenceSignatureReader, newSignatureReader))
+                                MethodSignature referenceSignatureReader = mReferenceMetadata.GetSignature(referenceRaiserMethodDefinition);
+                                MethodSignature newSignatureReader = mNewMetadata.GetSignature(newRaiserMethodDefinition);
+                                if (!IsSameMethodSignature(mReferenceMetadata, mNewMetadata, referenceSignatureReader, newSignatureReader))
                                 {
-                                    reporter.Report(OtherError.CreateMessage(string.Format("Signature of event raiser '{0}' changed.", referenceRaiserName))); // throw new NotImplementedException("Signature of event raiser changed.");
+                                    mReporter.Report(OtherError.CreateMessage(string.Format("Signature of event raiser '{0}' changed.", referenceRaiserName))); // throw new NotImplementedException("Signature of event raiser changed.");
                                 }
                             }
                         }
@@ -455,19 +454,19 @@ namespace CompatibilityChecker.Library
                 }
 
                 // check properties
-                foreach (var propertyDefinition in typeDefinition.GetProperties().Select(referenceMetadata.GetPropertyDefinition))
+                foreach (var propertyDefinition in typeDefinition.GetProperties().Select(mReferenceMetadata.GetPropertyDefinition))
                 {
-                    if (!IsPubliclyVisible(referenceMetadata, propertyDefinition))
+                    if (!IsPubliclyVisible(mReferenceMetadata, propertyDefinition))
                     {
                         continue;
                     }
 
-                    string referenceName = referenceMetadata.GetString(propertyDefinition.Name);
+                    string referenceName = mReferenceMetadata.GetString(propertyDefinition.Name);
 
                     PropertyDefinitionHandle newPropertyDefinitionHandle = default(PropertyDefinitionHandle);
                     foreach (var propertyDefinitionHandle in newTypeDefinition.GetProperties())
                     {
-                        string newName = newMetadata.GetString(newMetadata.GetPropertyDefinition(propertyDefinitionHandle).Name);
+                        string newName = mNewMetadata.GetString(mNewMetadata.GetPropertyDefinition(propertyDefinitionHandle).Name);
                         if (string.Equals(referenceName, newName, StringComparison.Ordinal))
                         {
                             newPropertyDefinitionHandle = propertyDefinitionHandle;
@@ -477,50 +476,50 @@ namespace CompatibilityChecker.Library
 
                     if (newPropertyDefinitionHandle.IsNil)
                     {
-                        reporter.Report(PropertyMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible property '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition)));
+                        mReporter.Report(PropertyMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition))); //throw new NotImplementedException(string.Format("Publicly-visible property '{0}' was renamed or removed.", GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition)));
                         continue; // TODO test
                     }
 
-                    PropertyDefinition newPropertyDefinition = newMetadata.GetPropertyDefinition(newPropertyDefinitionHandle);
+                    PropertyDefinition newPropertyDefinition = mNewMetadata.GetPropertyDefinition(newPropertyDefinitionHandle);
                     if (propertyDefinition.Attributes != newPropertyDefinition.Attributes)
                     {
-                        reporter.Report(PropertyAttributesMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Attributes of publicly-visible property changed.");
+                        mReporter.Report(PropertyAttributesMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Attributes of publicly-visible property changed.");
                     }
 
-                    PropertySignature referenceSignature = referenceMetadata.GetSignature(propertyDefinition);
-                    PropertySignature newSignature = newMetadata.GetSignature(newPropertyDefinition);
-                    if (!IsSamePropertySignature(referenceMetadata, newMetadata, referenceSignature, newSignature))
+                    PropertySignature referenceSignature = mReferenceMetadata.GetSignature(propertyDefinition);
+                    PropertySignature newSignature = mNewMetadata.GetSignature(newPropertyDefinition);
+                    if (!IsSamePropertySignature(mReferenceMetadata, mNewMetadata, referenceSignature, newSignature))
                     {
-                        reporter.Report(PropertySignatureMustNotBeChanged.CreateMessage(GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Signature of publicly-visible property changed.");
+                        mReporter.Report(PropertySignatureMustNotBeChanged.CreateMessage(GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Signature of publicly-visible property changed.");
                     }
 
                     PropertyAccessors propertyAccessors = propertyDefinition.GetAccessors();
                     if (!propertyAccessors.Getter.IsNil)
                     {
-                        MethodDefinition referenceGetterMethodDefinition = referenceMetadata.GetMethodDefinition(propertyAccessors.Getter);
-                        if (IsPubliclyVisible(referenceMetadata, referenceGetterMethodDefinition))
+                        MethodDefinition referenceGetterMethodDefinition = mReferenceMetadata.GetMethodDefinition(propertyAccessors.Getter);
+                        if (IsPubliclyVisible(mReferenceMetadata, referenceGetterMethodDefinition))
                         {
                             PropertyAccessors newPropertyAccessors = newPropertyDefinition.GetAccessors();
                             if (newPropertyAccessors.Getter.IsNil)
                             {
-                                reporter.Report(PropertyGetterMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Property getter was removed.");
+                                mReporter.Report(PropertyGetterMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Property getter was removed.");
                             }
                             else
                             {
-                                MethodDefinition newGetterMethodDefinition = newMetadata.GetMethodDefinition(newPropertyAccessors.Getter);
+                                MethodDefinition newGetterMethodDefinition = mNewMetadata.GetMethodDefinition(newPropertyAccessors.Getter);
 
-                                string referenceGetterName = referenceMetadata.GetString(referenceGetterMethodDefinition.Name);
-                                string newGetterName = newMetadata.GetString(newGetterMethodDefinition.Name);
+                                string referenceGetterName = mReferenceMetadata.GetString(referenceGetterMethodDefinition.Name);
+                                string newGetterName = mNewMetadata.GetString(newGetterMethodDefinition.Name);
                                 if (!string.Equals(referenceGetterName, newGetterName, StringComparison.Ordinal))
                                 {
-                                    reporter.Report(OtherError.CreateMessage(string.Format("Name of property getter for '{0}' changed.", GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property getter changed.");
+                                    mReporter.Report(OtherError.CreateMessage(string.Format("Name of property getter for '{0}' changed.", GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property getter changed.");
                                 }
 
-                                MethodSignature referenceAccessorSignatureReader = referenceMetadata.GetSignature(referenceGetterMethodDefinition);
-                                MethodSignature newAccessorSignatureReader = newMetadata.GetSignature(newGetterMethodDefinition);
-                                if (!IsSameMethodSignature(referenceMetadata, newMetadata, referenceAccessorSignatureReader, newAccessorSignatureReader))
+                                MethodSignature referenceAccessorSignatureReader = mReferenceMetadata.GetSignature(referenceGetterMethodDefinition);
+                                MethodSignature newAccessorSignatureReader = mNewMetadata.GetSignature(newGetterMethodDefinition);
+                                if (!IsSameMethodSignature(mReferenceMetadata, mNewMetadata, referenceAccessorSignatureReader, newAccessorSignatureReader))
                                 {
-                                    reporter.Report(OtherError.CreateMessage(string.Format("Signature of property getter for '{0}' changed.", GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property getter changed.");
+                                    mReporter.Report(OtherError.CreateMessage(string.Format("Signature of property getter for '{0}' changed.", GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property getter changed.");
                                 }
                             }
                         }
@@ -528,30 +527,30 @@ namespace CompatibilityChecker.Library
 
                     if (!propertyAccessors.Setter.IsNil)
                     {
-                        MethodDefinition referenceSetterMethodDefinition = referenceMetadata.GetMethodDefinition(propertyAccessors.Setter);
-                        if (IsPubliclyVisible(referenceMetadata, referenceSetterMethodDefinition))
+                        MethodDefinition referenceSetterMethodDefinition = mReferenceMetadata.GetMethodDefinition(propertyAccessors.Setter);
+                        if (IsPubliclyVisible(mReferenceMetadata, referenceSetterMethodDefinition))
                         {
                             PropertyAccessors newPropertyAccessors = newPropertyDefinition.GetAccessors();
                             if (newPropertyAccessors.Setter.IsNil)
                             {
-                                reporter.Report(PropertySetterMustNotBeRemoved.CreateMessage(GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Property setter was removed.");
+                                mReporter.Report(PropertySetterMustNotBeRemoved.CreateMessage(GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition))); // throw new NotImplementedException("Property setter was removed.");
                             }
                             else
                             {
-                                MethodDefinition newSetterMethodDefinition = newMetadata.GetMethodDefinition(newPropertyAccessors.Setter);
+                                MethodDefinition newSetterMethodDefinition = mNewMetadata.GetMethodDefinition(newPropertyAccessors.Setter);
 
-                                string referenceSetterName = referenceMetadata.GetString(referenceSetterMethodDefinition.Name);
-                                string newSetterName = newMetadata.GetString(newSetterMethodDefinition.Name);
+                                string referenceSetterName = mReferenceMetadata.GetString(referenceSetterMethodDefinition.Name);
+                                string newSetterName = mNewMetadata.GetString(newSetterMethodDefinition.Name);
                                 if (!string.Equals(referenceSetterName, newSetterName, StringComparison.Ordinal))
                                 {
-                                    reporter.Report(OtherError.CreateMessage(string.Format("Name of property setter for '{0}' changed.", GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property setter changed.");
+                                    mReporter.Report(OtherError.CreateMessage(string.Format("Name of property setter for '{0}' changed.", GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property setter changed.");
                                 }
 
-                                MethodSignature referenceAccessorSignatureReader = referenceMetadata.GetSignature(referenceSetterMethodDefinition);
-                                MethodSignature newAccessorSignatureReader = newMetadata.GetSignature(newSetterMethodDefinition);
-                                if (!IsSameMethodSignature(referenceMetadata, newMetadata, referenceAccessorSignatureReader, newAccessorSignatureReader))
+                                MethodSignature referenceAccessorSignatureReader = mReferenceMetadata.GetSignature(referenceSetterMethodDefinition);
+                                MethodSignature newAccessorSignatureReader = mNewMetadata.GetSignature(newSetterMethodDefinition);
+                                if (!IsSameMethodSignature(mReferenceMetadata, mNewMetadata, referenceAccessorSignatureReader, newAccessorSignatureReader))
                                 {
-                                    reporter.Report(OtherError.CreateMessage(string.Format("Signature of property setter for '{0}' changed.", GetMetadataName(referenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property setter changed.");
+                                    mReporter.Report(OtherError.CreateMessage(string.Format("Signature of property setter for '{0}' changed.", GetMetadataName(mReferenceMetadata, propertyDefinition, typeDefinition)))); // throw new NotImplementedException("Signature of property setter changed.");
                                 }
                             }
                         }
@@ -559,7 +558,7 @@ namespace CompatibilityChecker.Library
                 }
             }
 
-            _hasRun = true;
+            this.HasRun = true;
         }
 
         private void CheckAssemblyProperties(MetadataReader referenceMetadata, MetadataReader newMetadata)
@@ -571,14 +570,14 @@ namespace CompatibilityChecker.Library
             string newName = newMetadata.GetString(newAssemblyDefinition.Name);
             if (!string.Equals(referenceName, newName, StringComparison.Ordinal))
             {
-                reporter.Report(AssemblyNameMustNotBeChanged.CreateMessage(referenceName));
+                mReporter.Report(AssemblyNameMustNotBeChanged.CreateMessage(referenceName));
             }
 
             string referenceCulture = referenceMetadata.GetString(referenceAssemblyDefinition.Culture);
             string newCulture = referenceMetadata.GetString(newAssemblyDefinition.Culture);
             if (!string.Equals(referenceCulture, newCulture, StringComparison.Ordinal))
             {
-                reporter.Report(OtherError.CreateMessage(string.Format("Assembly culture changed from '{0}' to '{1}'.", referenceCulture, newCulture))); // throw new NotImplementedException("Assembly culture changed.");
+                mReporter.Report(OtherError.CreateMessage(string.Format("Assembly culture changed from '{0}' to '{1}'.", referenceCulture, newCulture))); // throw new NotImplementedException("Assembly culture changed.");
             }
 
             if (!referenceAssemblyDefinition.PublicKey.IsNil)
@@ -588,7 +587,7 @@ namespace CompatibilityChecker.Library
                 var newPublicKey = newMetadata.GetBlobContent(newAssemblyDefinition.PublicKey);
                 if (!referencePublicKey.SequenceEqual(newPublicKey))
                 {
-                    reporter.Report(PublicKeyMustNotBeChanged.CreateMessage(referenceName));
+                    mReporter.Report(PublicKeyMustNotBeChanged.CreateMessage(referenceName));
                 }
             }
         }
@@ -684,15 +683,15 @@ namespace CompatibilityChecker.Library
 
         private void CheckBaseType(MetadataReader referenceMetadata, MetadataReader newMetadata, TypeDefinitionHandle referenceBaseTypeHandle, TypeDefinitionHandle newBaseTypeDefinitionHandle)
         {
-            Mapping<TypeDefinitionHandle> mappedTypeDefinitionHandle = _referenceToNewMapping.MapTypeDefinition(referenceBaseTypeHandle);
+            Mapping<TypeDefinitionHandle> mappedTypeDefinitionHandle = mReferenceToNewMapping.MapTypeDefinition(referenceBaseTypeHandle);
             if (mappedTypeDefinitionHandle.Target.IsNil)
             {
-                reporter.Report(BaseTypeMustStayInAssembly.CreateMessage(GetMetadataName(referenceMetadata, referenceMetadata.GetTypeDefinition(mappedTypeDefinitionHandle.Target)))); // throw new NotImplementedException("Base type no longer in assembly.");
+                mReporter.Report(BaseTypeMustStayInAssembly.CreateMessage(GetMetadataName(referenceMetadata, referenceMetadata.GetTypeDefinition(mappedTypeDefinitionHandle.Target)))); // throw new NotImplementedException("Base type no longer in assembly.");
             }
 
             if (mappedTypeDefinitionHandle.Target != newBaseTypeDefinitionHandle)
             {
-                reporter.Report(BaseTypeMustNotChange.CreateMessage(GetMetadataName(referenceMetadata, referenceMetadata.GetTypeDefinition(mappedTypeDefinitionHandle.Target)))); // throw new NotImplementedException("Base type changed.");
+                mReporter.Report(BaseTypeMustNotChange.CreateMessage(GetMetadataName(referenceMetadata, referenceMetadata.GetTypeDefinition(mappedTypeDefinitionHandle.Target)))); // throw new NotImplementedException("Base type changed.");
             }
         }
 
@@ -704,14 +703,14 @@ namespace CompatibilityChecker.Library
             string newName = newMetadata.GetString(newBaseTypeReference.Name);
             if (!string.Equals(referenceName, newName, StringComparison.Ordinal))
             {
-                reporter.Report(BaseTypeMustNotChange.CreateMessage(referenceName)); // throw new NotImplementedException("Base type changed."); // throw new NotImplementedException("Base type changed.");
+                mReporter.Report(BaseTypeMustNotChange.CreateMessage(referenceName)); // throw new NotImplementedException("Base type changed."); // throw new NotImplementedException("Base type changed.");
             }
 
             string referenceNamespace = referenceMetadata.GetString(referenceBaseTypeReference.Namespace);
             string newNamespace = newMetadata.GetString(newBaseTypeReference.Namespace);
             if (!string.Equals(referenceNamespace, newNamespace, StringComparison.Ordinal))
             {
-                reporter.Report(BaseTypeMustNotChange.CreateMessage(string.Format("{0}.{1}", referenceNamespace, referenceName))); // throw new NotImplementedException("Base type changed.");
+                mReporter.Report(BaseTypeMustNotChange.CreateMessage(string.Format("{0}.{1}", referenceNamespace, referenceName))); // throw new NotImplementedException("Base type changed.");
             }
         }
 
@@ -735,7 +734,7 @@ namespace CompatibilityChecker.Library
             switch (referenceTypeHandle.Kind)
             {
                 case HandleKind.TypeDefinition:
-                    Mapping<TypeDefinitionHandle> mappedTypeDefinitionHandle = _referenceToNewMapping.MapTypeDefinition((TypeDefinitionHandle)referenceTypeHandle);
+                    Mapping<TypeDefinitionHandle> mappedTypeDefinitionHandle = mReferenceToNewMapping.MapTypeDefinition((TypeDefinitionHandle)referenceTypeHandle);
                     if (mappedTypeDefinitionHandle.Target.IsNil)
                     {
                         return false;
@@ -1122,12 +1121,12 @@ namespace CompatibilityChecker.Library
         {
             if (referenceResolutionScope.IsNil != newResolutionScope.IsNil)
             {
-                reporter.Report(OtherError.CreateMessage("ResolutionScope changed.")); // throw new NotImplementedException("ResolutionScope changed.");
+                mReporter.Report(OtherError.CreateMessage("ResolutionScope changed.")); // throw new NotImplementedException("ResolutionScope changed.");
             }
 
             if (referenceResolutionScope.Kind != newResolutionScope.Kind)
             {
-                reporter.Report(OtherError.CreateMessage("ResolutionScope changed.")); // throw new NotImplementedException("ResolutionScope changed.");
+                mReporter.Report(OtherError.CreateMessage("ResolutionScope changed.")); // throw new NotImplementedException("ResolutionScope changed.");
             }
 
             switch (referenceResolutionScope.Kind)
@@ -1159,7 +1158,7 @@ namespace CompatibilityChecker.Library
         {
             if (!IsSameAssembly(referenceMetadata, newMetadata, referenceResolutionScope, newResolutionScope))
             {
-                reporter.Report(ResolutionScopeAssemblyReferenceMustNotChange.CreateMessage(referenceMetadata.GetString(referenceResolutionScope.Name))); // throw new NotImplementedException("ResolutionScope assembly reference changed.");
+                mReporter.Report(ResolutionScopeAssemblyReferenceMustNotChange.CreateMessage(referenceMetadata.GetString(referenceResolutionScope.Name))); // throw new NotImplementedException("ResolutionScope assembly reference changed.");
             }
         }
 

@@ -24,7 +24,7 @@ namespace CompatibilityChecker.Library.Descriptors
 
         internal static Message CreateMessage(string eventName)
         {
-            return new Message(Instance, eventName);
+            return new Message(Instance, (nameof(eventName), eventName));
         }
     }
 }

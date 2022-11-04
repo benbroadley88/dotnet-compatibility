@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     using System.Reflection;
 
@@ -29,7 +29,7 @@
 
         internal static Message CreateMessage(string assemblyName)
         {
-            return new Message(Instance, assemblyName);
+            return new Message(Instance, (nameof(assemblyName), assemblyName));
         }
     }
 }

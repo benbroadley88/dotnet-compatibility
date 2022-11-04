@@ -21,6 +21,9 @@ namespace CompatibilityCheckerCoreCLI
             [Value(1, MetaName = "new assembly", Required = true, HelpText = "The new assembly.")]
             public string NewAssembly { get; set; }
 
+            [Value(2, MetaName = "output csv file", Required = false, HelpText = "The output csv filename.")]
+            public string OutFile { get; set; }
+
             [Option('a', "azure-pipelines", Required = false, Default = false, HelpText = "Include the logging prefixes for Azure Pipelines.")]
             public bool AzurePipelines { get; set; }
 
@@ -33,6 +36,7 @@ namespace CompatibilityCheckerCoreCLI
                 get
                 {
                     yield return new Example("Compare versions", new Options { ReferenceAssembly = "Assembly-1.0.0.dll", NewAssembly = "Assembly-1.0.1.dll" });
+                    yield return new Example("Compare versions and output to a csv file", new Options { ReferenceAssembly = "Assembly-1.0.0.dll", NewAssembly = "Assembly-1.0.1.dll", OutFile = "example.csv" });
                     yield return new Example("Compare versions in Azure Pipelines as CI", new Options { ReferenceAssembly = "Assembly-1.0.0.dll", NewAssembly = "Assembly-1.0.1.dll", AzurePipelines = true });
                     yield return new Example("Compare versions in Azure Pipelines as CI without failing the CI job", new Options { ReferenceAssembly = "Assembly-1.0.0.dll", NewAssembly = "Assembly-1.0.1.dll", AzurePipelines = true, WarningsOnly = true });
                 }
@@ -59,35 +63,42 @@ namespace CompatibilityCheckerCoreCLI
             //Guid timeline_guid = Guid.NewGuid();
             FileInfo referenceFile = new(opts.ReferenceAssembly);
             FileInfo newFile = new(opts.NewAssembly);
+
             if (referenceFile.Exists && newFile.Exists)
             {
                 //if (opts.AzurePipelines)
                 //Console.WriteLine("##vso[task.logdetail id={0};name=BinaryCompatibilityCheck;type=build;order=1;state=Initialized]Starting...", timeline_guid);
                 var refName = AssemblyName.GetAssemblyName(referenceFile.FullName);
                 var newName = AssemblyName.GetAssemblyName(newFile.FullName);
+
                 Console.WriteLine("Using '{0}' as the reference assembly.", refName.FullName);
                 Console.WriteLine("Using '{0}' as the new assembly.", refName.FullName);
+
+                IMessageLogger logger;
+                if (opts.AzurePipelines)
+                {
+                    if (opts.WarningsOnly)
+                    {
+                        logger = new AzurePipelinesMessageLogger(Severity.Warning);
+                    }
+                    else
+                    {
+                        logger = new AzurePipelinesMessageLogger();
+                    }
+                }
+                else if (!String.IsNullOrEmpty(opts.OutFile) && CSVLogger.ValidateFilename(opts.OutFile))
+                {
+                    logger = new CSVLogger(opts.OutFile);
+                }
+                else
+                {
+                    logger = new ConsoleMessageLogger();
+                }
+
                 using (PEReader referenceAssembly = new(File.OpenRead(referenceFile.FullName)))
                 {
                     using (PEReader newAssembly = new(File.OpenRead(newFile.FullName)))
                     {
-                        IMessageLogger logger;
-                        if (opts.AzurePipelines)
-                        {
-                            if (opts.WarningsOnly)
-                            {
-                                logger = new AzurePipelinesMessageLogger(Severity.Warning);
-                            }
-                            else
-                            {
-                                logger = new AzurePipelinesMessageLogger();
-                            }
-                        }
-                        else
-                        {
-                            logger = new ConsoleMessageLogger();
-                        }
-
                         Analyzer analyzer = new(referenceAssembly, newAssembly, null, logger);
                         analyzer.Run();
                         if (analyzer.HasRun)
@@ -102,7 +113,6 @@ namespace CompatibilityCheckerCoreCLI
                                 }
 
                                 Environment.ExitCode = opts.WarningsOnly ? 0 : -2;
-                                return;
                             }
                             else
                             {
@@ -110,8 +120,6 @@ namespace CompatibilityCheckerCoreCLI
                                 {
                                     Console.WriteLine("##vso[task.complete result=Succeeded]");
                                 }
-
-                                return;
                             }
                         }
                         else
@@ -122,10 +130,16 @@ namespace CompatibilityCheckerCoreCLI
                             }
 
                             Environment.ExitCode = opts.WarningsOnly ? 0 : -1;
-                            return;
                         }
                     }
                 }
+
+                if (logger is CSVLogger csvLogger)
+                {
+                    csvLogger.Write();
+                }
+
+                return;
             }
             else
             {

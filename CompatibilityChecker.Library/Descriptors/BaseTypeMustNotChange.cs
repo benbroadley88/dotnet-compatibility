@@ -15,7 +15,7 @@ namespace CompatibilityChecker.Library.Descriptors
         private static new readonly Severity DefaultSeverity = Severity.Error;
         private static new readonly string Description = null;
 
-        private static readonly BaseTypeMustNotChange Instance = new ();
+        private static readonly BaseTypeMustNotChange Instance = new();
 
         private BaseTypeMustNotChange()
             : base(Id, Title, MessageFormat, Category, DefaultSeverity, Description)
@@ -24,7 +24,7 @@ namespace CompatibilityChecker.Library.Descriptors
 
         internal static Message CreateMessage(string typeName)
         {
-            return new Message(Instance, typeName);
+            return new Message(Instance, (nameof(typeName), typeName));
         }
     }
 }

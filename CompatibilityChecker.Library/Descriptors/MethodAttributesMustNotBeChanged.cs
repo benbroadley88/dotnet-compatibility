@@ -1,4 +1,4 @@
-﻿namespace CompatibilityChecker.Library.Descriptors
+namespace CompatibilityChecker.Library.Descriptors
 {
     using System.Reflection.Metadata;
     using System.Runtime.CompilerServices;
@@ -22,9 +22,12 @@
         {
         }
 
-        internal static Message CreateMessage(string methodName)
+        internal static Message CreateMessage(string methodName, string originalAttributes, string newAttributes)
         {
-            return new Message(Instance, methodName);
+            return new Message(Instance,
+                (nameof(methodName), methodName),
+                (nameof(originalAttributes), originalAttributes),
+                (nameof(newAttributes), newAttributes));
         }
     }
 }

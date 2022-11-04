@@ -24,7 +24,7 @@ namespace CompatibilityChecker.Library.Descriptors
 
         internal static Message CreateMessage(string assemblyName)
         {
-            return new Message(Instance, assemblyName);
+            return new Message(Instance, (nameof(assemblyName), assemblyName));
         }
     }
 }

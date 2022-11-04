@@ -1,24 +1,30 @@
-﻿namespace CompatibilityChecker.Library
+namespace CompatibilityChecker.Library
 {
+    using System.Linq;
     using CompatibilityChecker.Library.Descriptors;
 
     public class Message
     {
-        private readonly CompatibilityDescriptor descriptor;
-        private readonly object[] arguments;
+        private readonly CompatibilityDescriptor mDescriptor;
+        private readonly (string key, string value)[] mArguments;
 
-        internal Message(CompatibilityDescriptor descriptor, params object[] arguments)
+        internal Message(CompatibilityDescriptor descriptor, params (string key, string value)[] arguments)
         {
-            this.descriptor = descriptor;
-            this.arguments = arguments;
+            mDescriptor = descriptor;
+            mArguments = arguments;
         }
 
-        internal Severity Severity => descriptor.DefaultSeverity;
+        internal Severity Severity { get => mDescriptor.DefaultSeverity; }
+
+        internal (string key, string value)[] Arguments { get => mArguments; }
+
+        internal CompatibilityDescriptor Descriptor { get => mDescriptor; }
 
         public override string ToString()
         {
-            string message = string.Format(descriptor.MessageFormat, arguments);
-            return string.Format("{0} {1}: {2}", descriptor.DefaultSeverity, descriptor.RuleId, message);
+            
+            string message = string.Format(mDescriptor.MessageFormat, mArguments.Select(kvp => kvp.value).ToArray());
+            return string.Format("{0} {1}: {2}", mDescriptor.DefaultSeverity, mDescriptor.RuleId, message);
         }
     }
 }
